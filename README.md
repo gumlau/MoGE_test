@@ -258,7 +258,7 @@ See also [`moge/scripts/infer_panorama.py`](moge/scripts/infer_panorama.py)
 
 ## 🏋️‍♂️ Training & Finetuning
 
-See [docs/train.md](docs/train.md)
+See [docs/train.md](docs/train.md). For the retina surgery dataset pipeline and evaluation specifics, refer to [docs/retina_finetune.md](docs/retina_finetune.md).
 
 ## 🧪 Evaluation
 

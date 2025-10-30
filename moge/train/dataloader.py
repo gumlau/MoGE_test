@@ -21,6 +21,7 @@ from tqdm import tqdm
 from ..utils.io import *
 from ..utils.geometry_numpy import harmonic_mean_numpy, norm3d, depth_occlusion_edge_numpy
 from ..utils.data_augmentation import sample_perspective, warp_perspective, image_color_augmentation
+from ..utils.retina_dataset import scan_retina_records, read_binary_mask, load_depth_map
 
 
 class TrainDataLoaderPipeline:
@@ -49,13 +50,26 @@ class TrainDataLoaderPipeline:
         self.datasets = {}
         for dataset in tqdm(config['datasets'], desc='Loading datasets'):
             name = dataset['name']
-            content = Path(dataset['path'], dataset.get('index', '.index.txt')).joinpath().read_text()
-            filenames = content.splitlines()
-            self.datasets[name] = {
-                **dataset,
-                'path': dataset['path'],
-                'filenames': filenames,
-            }
+            dataset_type = dataset.get('type', 'default')
+            if dataset_type == 'retina_surgery':
+                filenames, records = scan_retina_records(dataset)
+                self.datasets[name] = {
+                    **dataset,
+                    'type': dataset_type,
+                    'path': dataset['path'],
+                    'filenames': filenames,
+                    'records': records,
+                }
+            else:
+                index_path = Path(dataset['path'], dataset.get('index', '.index.txt'))
+                content = index_path.read_text()
+                filenames = content.splitlines()
+                self.datasets[name] = {
+                    **dataset,
+                    'type': dataset_type,
+                    'path': dataset['path'],
+                    'filenames': filenames,
+                }
         self.dataset_names = [dataset['name'] for dataset in config['datasets']]
         self.dataset_weights = [dataset['weight'] for dataset in config['datasets']]
 
@@ -123,25 +137,52 @@ class TrainDataLoaderPipeline:
 
     def _load_instance(self, instance: dict):
         try:
-            image = read_image(Path(instance['path'], 'image.jpg'))
-            depth = read_depth(Path(instance['path'], self.datasets[instance['dataset']].get('depth', 'depth.png')))
-            meta = read_json(Path(instance['path'], 'meta.json'))
-            intrinsics = np.array(meta['intrinsics'], dtype=np.float32)
-            data = {
-                'image': image,
-                'depth': depth,
-                'intrinsics': intrinsics
-            }
-            instance.update({
-                **data,
-            })
+            dataset_config = self.datasets[instance['dataset']]
+            if dataset_config.get('type') == 'retina_surgery':
+                data = self._load_retina_instance(instance, dataset_config)
+            else:
+                image = read_image(Path(instance['path'], 'image.jpg'))
+                depth = read_depth(Path(instance['path'], dataset_config.get('depth', 'depth.png')))
+                meta = read_json(Path(instance['path'], 'meta.json'))
+                intrinsics = np.array(meta['intrinsics'], dtype=np.float32)
+                data = {
+                    'image': image,
+                    'depth': depth,
+                    'intrinsics': intrinsics
+                }
+            instance.update(data)
         except Exception as e:
             print(f"Failed to load instance {instance['dataset']}/{instance['filename']} because of exception:", e)
             instance.update(self.invalid_instance)
         return instance
 
+    def _load_retina_instance(self, instance: dict, dataset_config: dict) -> Dict[str, Any]:
+        record = dataset_config['records'][instance['filename']]
+        image = read_image(record['image_path'])
+
+        depth = load_depth_map(record['depth_path'])
+
+        valid_mask = read_binary_mask(record.get('valid_mask_path'))
+        if valid_mask is None:
+            valid_mask = np.ones_like(depth, dtype=np.float32)
+        instrument_mask = read_binary_mask(record.get('instrument_mask_path'))
+
+        depth = np.where(valid_mask > 0.5, depth, np.nan)
+
+        return {
+            'image': image,
+            'depth': depth,
+            'intrinsics': record['intrinsics'],
+            'valid_region_mask': valid_mask,
+            'instrument_mask': instrument_mask,
+            'sequence': record['sequence'],
+            'frame_name': record['frame_name'],
+        }
+
     def _process_instance(self, instance: Dict[str, Union[np.ndarray, str, float, bool]]):
         raw_image, raw_depth, raw_intrinsics, label_type = instance['image'], instance['depth'], instance['intrinsics'], instance['label_type']
+        raw_valid_mask = instance.get('valid_region_mask', None)
+        raw_instrument_mask = instance.get('instrument_mask', None)
         raw_normal, raw_normal_mask = utils3d.np.depth_map_to_normal_map(raw_depth, intrinsics=raw_intrinsics, mask=np.isfinite(raw_depth), edge_threshold=88)
         raw_normal = np.where(raw_normal_mask[..., None], raw_normal, np.nan)
         depth_unit = self.datasets[instance['dataset']].get('depth_unit', None)
@@ -180,6 +221,17 @@ class TrainDataLoaderPipeline:
         warped_normal = warp_perspective(raw_normal, transform, (tgt_height, tgt_width), interpolation='bilinear')
         tgt_normal = warped_normal @ R.T
 
+        if raw_valid_mask is not None:
+            warped_valid_mask = warp_perspective(raw_valid_mask.astype(np.float32), transform, (tgt_height, tgt_width), interpolation='nearest') > 0.5
+        else:
+            warped_valid_mask = np.isfinite(tgt_depth)
+        if raw_instrument_mask is not None:
+            warped_instrument_mask = warp_perspective(raw_instrument_mask.astype(np.float32), transform, (tgt_height, tgt_width), interpolation='nearest') > 0.5
+        else:
+            warped_instrument_mask = None
+
+        tgt_depth = np.where(warped_valid_mask, tgt_depth, np.nan)
+
         # always make sure that mask is not empty
         if np.isfinite(tgt_depth).sum() / tgt_depth.size < 0.001:
             tgt_depth = np.ones_like(tgt_depth)
@@ -217,6 +269,8 @@ class TrainDataLoaderPipeline:
             tgt_depth_mask_fin = np.isfinite(tgt_depth)
         else:
             tgt_depth_mask_fin = ~tgt_depth_mask_inf
+        tgt_depth_mask_fin = tgt_depth_mask_fin & warped_valid_mask
+        tgt_depth = np.where(tgt_depth_mask_fin, tgt_depth, np.nan)
 
         instance.update({
             'image': torch.from_numpy(tgt_image.astype(np.float32) / 255.0).permute(2, 0, 1),
@@ -226,14 +280,37 @@ class TrainDataLoaderPipeline:
             "normal": torch.from_numpy(tgt_normal).float(),
             'intrinsics': torch.from_numpy(tgt_intrinsics).float(),
         })
+        if raw_valid_mask is not None:
+            instance['valid_mask'] = torch.from_numpy(warped_valid_mask).bool()
+        if warped_instrument_mask is not None:
+            instance['instrument_mask'] = torch.from_numpy(warped_instrument_mask).bool()
         return instance
 
     def _collate_batch(self, instances: List[Dict[str, Any]]):
-        batch = {k: torch.stack([instance[k] for instance in instances], dim=0) for k in ['image', 'depth', 'depth_mask_fin', 'depth_mask_inf', 'normal', 'intrinsics']}
+        required_keys = ['image', 'depth', 'depth_mask_fin', 'depth_mask_inf', 'normal', 'intrinsics']
+        batch = {k: torch.stack([instance[k] for instance in instances], dim=0) for k in required_keys}
+        for optional_key in ['valid_mask', 'instrument_mask']:
+            if any(optional_key in instance and instance[optional_key] is not None for instance in instances):
+                reference = next(instance[optional_key] for instance in instances if optional_key in instance and instance[optional_key] is not None)
+                stacked = []
+                for instance in instances:
+                    value = instance.get(optional_key, None)
+                    if value is None:
+                        value = torch.zeros_like(reference)
+                    stacked.append(value)
+                batch[optional_key] = torch.stack(stacked, dim=0)
         batch = {
             'label_type': [instance['label_type'] for instance in instances],
             'is_metric': [instance['is_metric'] for instance in instances],
-            'info': [{'dataset': instance['dataset'], 'filename': instance['filename']} for instance in instances],
+            'info': [
+                {
+                    'dataset': instance['dataset'],
+                    'filename': instance['filename'],
+                    'sequence': instance.get('sequence'),
+                    'frame_name': instance.get('frame_name'),
+                }
+                for instance in instances
+            ],
             **batch,
         }
         return batch
@@ -254,5 +331,3 @@ class TrainDataLoaderPipeline:
     def __exit__(self, exc_type, exc_value, traceback):
         self.pipeline.stop()
         return False
-
-
