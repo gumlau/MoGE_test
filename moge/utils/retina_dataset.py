@@ -44,10 +44,52 @@ def load_depth_map(path: Path) -> np.ndarray:
     return depth.astype(np.float32)
 
 
+def _normalize_split_entry(entry: str) -> Optional[str]:
+    entry = entry.strip()
+    if not entry or entry.startswith('#'):
+        return None
+    image_spec = entry.split(',')[0].strip()
+    if not image_spec:
+        return None
+    image_spec = image_spec.replace('\\', '/')
+    path = Path(image_spec)
+    parts = path.parts
+    if len(parts) >= 4 and parts[1] == 'left' and parts[2] == 'imgs':
+        sequence = parts[0]
+        frame = parts[-1]
+        return f"{sequence}/left/{frame}"
+    if len(parts) >= 3 and parts[1] == 'left':
+        sequence = parts[0]
+        frame = parts[-1]
+        return f"{sequence}/left/{frame}"
+    return image_spec
+
+
+def _load_split_list(dataset_config: Dict) -> Optional[List[str]]:
+    split_name = dataset_config.get('split')
+    if not split_name:
+        return None
+    split_path = Path(split_name)
+    if not split_path.is_absolute():
+        split_path = Path(dataset_config['path']) / split_path
+    if split_path.is_dir():
+        raise ValueError(f'Split path {split_path} should be a file, not a directory.')
+    if not split_path.exists():
+        raise FileNotFoundError(f'Split file {split_path} does not exist.')
+    entries: List[str] = []
+    for raw in split_path.read_text().splitlines():
+        key = _normalize_split_entry(raw)
+        if key is not None:
+            entries.append(key)
+    return entries or None
+
+
 def scan_retina_records(dataset_config: Dict) -> Tuple[List[str], Dict[str, Dict]]:
     root = Path(dataset_config['path'])
     records: Dict[str, Dict] = {}
     filenames: List[str] = []
+
+    split_entries = _load_split_list(dataset_config)
 
     sequences = sorted([p for p in root.iterdir() if p.is_dir() and p.name.endswith('_processed')])
     if not sequences:
@@ -102,5 +144,27 @@ def scan_retina_records(dataset_config: Dict) -> Tuple[List[str], Dict[str, Dict
 
     if not filenames:
         raise RuntimeError(f'No valid samples found in retina dataset at {root}.')
+
+    if split_entries is not None:
+        filtered_records: Dict[str, Dict] = {}
+        missing_entries: List[str] = []
+        for key in split_entries:
+            if key in records:
+                filtered_records[key] = records[key]
+            else:
+                missing_entries.append(key)
+        if not filtered_records:
+            missing_preview = ', '.join(missing_entries[:5])
+            raise RuntimeError(
+                f'No samples from split "{dataset_config["split"]}" matched the retina dataset. '
+                f'Sample missing keys: {missing_preview}'
+            )
+        if missing_entries:
+            print(
+                f'Warning: {len(missing_entries)} entries listed in split file '
+                f'"{dataset_config["split"]}" were not found in the dataset.'
+            )
+        filenames = list(filtered_records.keys())
+        records = filtered_records
 
     return filenames, records

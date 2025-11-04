@@ -54,12 +54,15 @@ def run_inference(args: argparse.Namespace) -> None:
     retina_datasets = [ds for ds in config["data"]["datasets"] if ds.get("type") == "retina_surgery"]
     if not retina_datasets:
         raise RuntimeError("No retina_surgery dataset entry found in config")
-    retina_datasets[0]["path"] = str(dataset_root)
+    dataset_cfg = dict(retina_datasets[0])
+    dataset_cfg["path"] = str(dataset_root)
+    if args.split:
+        dataset_cfg["split"] = args.split
 
     device = torch.device(args.device)
     model = _load_model(config_path, args.checkpoint, args.pretrained, device, args.fp16)
 
-    filenames, records = scan_retina_records(retina_datasets[0])
+    filenames, records = scan_retina_records(dataset_cfg)
     if args.limit is not None:
         filenames = filenames[: args.limit]
 
@@ -102,7 +105,7 @@ def run_inference(args: argparse.Namespace) -> None:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Run MoGe inference on the retina dataset")
     parser.add_argument("--config", default="configs/train/retina_surgery.json", help="Training config file used for retina setup")
-    parser.add_argument("--dataset-root", required=True, help="Root directory of ../final_version_processed on the server")
+    parser.add_argument("--dataset-root", default="../final_version_processed", help="Root directory of ../final_version_processed on the server")
     parser.add_argument("--output-dir", default="retina_predictions", help="Folder to write predictions")
     parser.add_argument("--checkpoint", type=Path, default=None, help="Path to fine-tuned checkpoint (.pt)")
     parser.add_argument("--pretrained", default=None, help="Optional HuggingFace repo or local dir for MoGe.from_pretrained")
@@ -111,6 +114,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--num-tokens", type=int, default=None, help="Override ViT tokens for inference")
     parser.add_argument("--resolution-level", type=int, default=9, help="Model resolution level (ignored if num_tokens set)")
     parser.add_argument("--limit", type=int, default=None, help="Optional number of frames to process")
+    parser.add_argument("--split", default=None, help="Optional split file (e.g. val.txt) relative to dataset root")
     return parser
 
 

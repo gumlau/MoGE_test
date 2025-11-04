@@ -62,12 +62,15 @@ def run_evaluation(args: argparse.Namespace) -> None:
     retina_datasets = [ds for ds in config["data"]["datasets"] if ds.get("type") == "retina_surgery"]
     if not retina_datasets:
         raise RuntimeError("No retina_surgery dataset entry found in config")
-    retina_datasets[0]["path"] = args.dataset_root
+    dataset_cfg = dict(retina_datasets[0])
+    dataset_cfg["path"] = str(Path(args.dataset_root))
+    if args.split:
+        dataset_cfg["split"] = args.split
 
     device = torch.device(args.device)
     model = _load_model(config, args.checkpoint, args.pretrained, device, args.fp16)
 
-    filenames, records = scan_retina_records(retina_datasets[0])
+    filenames, records = scan_retina_records(dataset_cfg)
     if args.limit is not None:
         filenames = filenames[: args.limit]
 
@@ -147,7 +150,7 @@ def run_evaluation(args: argparse.Namespace) -> None:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Evaluate MoGe on the retina dataset")
     parser.add_argument("--config", default="configs/train/retina_surgery.json", help="Finetune config path")
-    parser.add_argument("--dataset-root", required=True, help="Root directory of ../final_version_processed")
+    parser.add_argument("--dataset-root", default="../final_version_processed", help="Root directory of ../final_version_processed")
     parser.add_argument("--checkpoint", type=Path, default=None, help="Checkpoint (.pt) to evaluate")
     parser.add_argument("--pretrained", default=None, help="Optional pretrained repo/path if no checkpoint")
     parser.add_argument("--device", default="cuda", help="Evaluation device")
@@ -156,6 +159,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--resolution-level", type=int, default=9, help="Resolution level used by model.infer")
     parser.add_argument("--limit", type=int, default=None, help="Limit number of samples for quick checks")
     parser.add_argument("--output", default=None, help="Optional JSON file to store metrics")
+    parser.add_argument("--split", default=None, help="Optional split file (e.g. test.txt) relative to dataset root")
     return parser
 
 

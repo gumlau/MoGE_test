@@ -11,6 +11,7 @@
                 "name": "retina_surgery",
                 "type": "retina_surgery",
                 "path": "../final_version_processed",
+                "split": "train.txt",
                 "label_type": "A",
                 "weight": 1.0,
                 "depth_unit": 1.0,

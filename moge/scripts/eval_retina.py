@@ -17,13 +17,15 @@ from moge.model import import_model_class_by_version
 from moge.utils.retina_dataset import scan_retina_records, read_binary_mask, load_depth_map
 
 
-def _load_retina_records(config: Dict) -> Dict[str, Dict]:
+def _load_retina_records(config: Dict, split_name: Optional[str]) -> Dict[str, Dict]:
     retina_datasets = [dataset for dataset in config['data']['datasets'] if dataset.get('type') == 'retina_surgery']
     if not retina_datasets:
         raise ValueError('No retina_surgery dataset configuration found in config file.')
     if len(retina_datasets) > 1:
         click.echo('Warning: multiple retina_surgery datasets configured, using the first entry.', err=True)
-    dataset_cfg = retina_datasets[0]
+    dataset_cfg = dict(retina_datasets[0])
+    if split_name is not None:
+        dataset_cfg['split'] = split_name
     filenames, records = scan_retina_records(dataset_cfg)
     return {key: records[key] for key in filenames}
 
@@ -73,6 +75,7 @@ def _merge_results(per_sample: List[Dict[str, Dict[str, float]]]) -> Dict[str, D
 @click.option('--limit', type=int, default=None, help='Maximum number of samples to evaluate.')
 @click.option('--num_tokens', type=int, default=None, help='Override number of ViT tokens during inference.')
 @click.option('--resolution_level', type=int, default=9, help='Resolution level passed to model.infer.')
+@click.option('--split', type=str, default=None, help='Optional split file (e.g., val.txt) relative to the dataset root.')
 def main(
     config_path: str,
     checkpoint_path: Optional[str],
@@ -82,12 +85,13 @@ def main(
     limit: Optional[int],
     num_tokens: Optional[int],
     resolution_level: int,
+    split: Optional[str],
 ):
     torch.set_grad_enabled(False)
     device = torch.device(device)
 
     config = json.loads(Path(config_path).read_text())
-    records = _load_retina_records(config)
+    records = _load_retina_records(config, split)
     keys = list(records.keys())
     if limit is not None:
         keys = keys[:limit]
