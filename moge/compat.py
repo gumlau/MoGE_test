@@ -12,6 +12,11 @@ import builtins
 import types
 import typing
 
+try:
+    import numpy as _np  # type: ignore
+except Exception:  # pragma: no cover - numpy not available yet
+    _np = None  # type: ignore
+
 try:  # typing_extensions may be absent; handled later if so
     import typing_extensions
 except ImportError:  # pragma: no cover - optional dependency
@@ -91,6 +96,21 @@ def _install_typing_getattr_fallback() -> None:
     typing.__getattr__ = _patched_typing_getattr  # type: ignore[assignment]
 
 
+def _ensure_numpy_matrix_transpose() -> None:
+    if _np is None:
+        return
+    if hasattr(_np.ndarray, "mT"):
+        return
+
+    def _matrix_transpose(self):  # type: ignore[override]
+        return self.T
+
+    try:
+        setattr(_np.ndarray, "mT", property(_matrix_transpose))
+    except Exception:  # pragma: no cover - unable to patch ndarray type
+        pass
+
+
 def ensure_runtime_compatibility() -> None:
     """Apply one-off runtime patches required for third-party libs."""
 
@@ -103,8 +123,10 @@ def ensure_runtime_compatibility() -> None:
     for helper in ("TypeAlias", "TypeGuard", "Concatenate"):
         _ensure_typing_symbol(helper)
     _install_typing_getattr_fallback()
+    _ensure_numpy_matrix_transpose()
 
     _COMPAT_APPLIED = True
 
 
 __all__ = ["ensure_runtime_compatibility"]
+
