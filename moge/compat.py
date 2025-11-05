@@ -108,7 +108,7 @@ def _ensure_numpy_matrix_transpose() -> None:
         class _MoGEMatrix(_np.ndarray):  # type: ignore[misc]
             @property
             def mT(self):  # type: ignore[override]
-                return self.T
+                return self.swapaxes(-1, -2)
 
         _MOGE_MATRIX_TYPE = _MoGEMatrix
 
