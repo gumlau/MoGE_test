@@ -17,6 +17,7 @@ dependencies = [
     "pillow",
     "huggingface_hub",
     "accelerate",
+    "typing_extensions",
     "numpy",
     "torch>=2.0.0",
     "torchvision",
