@@ -8,7 +8,7 @@ import time
 import random
 from typing import *
 import itertools
-from contextlib import nullcontext
+from contextlib import nullcontext, ExitStack
 from concurrent.futures import ThreadPoolExecutor
 import io
 
@@ -228,11 +228,10 @@ def main(
     # Ready to train
     records = []
     model.train()
-    with (
-        train_data_pipe,
-        tqdm(initial=initial_step, total=num_iterations, desc='Training', disable=not accelerator.is_main_process) as pbar,
-        ThreadPoolExecutor(max_workers=1) as save_checkpoint_executor,
-    ):  
+    with ExitStack() as stack:
+        stack.enter_context(train_data_pipe)
+        pbar = stack.enter_context(tqdm(initial=initial_step, total=num_iterations, desc='Training', disable=not accelerator.is_main_process))
+        save_checkpoint_executor = stack.enter_context(ThreadPoolExecutor(max_workers=1))
         # Get some batches for visualization
         if accelerator.is_main_process:
             batches_for_vis: List[Dict[str, torch.Tensor]] = []

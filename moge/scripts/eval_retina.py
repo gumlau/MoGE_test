@@ -17,6 +17,33 @@ from moge.model import import_model_class_by_version
 from moge.utils.retina_dataset import scan_retina_records, read_binary_mask, load_depth_map
 
 
+def _resolve_split(dataset_cfg: Dict, split_name: Optional[str]) -> Optional[str]:
+    dataset_root = Path(dataset_cfg['path'])
+
+    def _candidate_exists(candidate: str) -> bool:
+        candidate_path = Path(candidate)
+        if not candidate_path.is_absolute():
+            candidate_path = dataset_root / candidate_path
+        return candidate_path.exists()
+
+    if split_name:
+        return split_name
+
+    candidates = [
+        'test.txt',
+        'split/test.txt',
+        'val.txt',
+        'split/val.txt',
+        'validation.txt',
+        dataset_cfg.get('split'),
+        'train.txt',
+    ]
+    for candidate in candidates:
+        if candidate and _candidate_exists(candidate):
+            return candidate
+    return None
+
+
 def _load_retina_records(config: Dict, split_name: Optional[str]) -> Dict[str, Dict]:
     retina_datasets = [dataset for dataset in config['data']['datasets'] if dataset.get('type') == 'retina_surgery']
     if not retina_datasets:
@@ -24,8 +51,9 @@ def _load_retina_records(config: Dict, split_name: Optional[str]) -> Dict[str, D
     if len(retina_datasets) > 1:
         click.echo('Warning: multiple retina_surgery datasets configured, using the first entry.', err=True)
     dataset_cfg = dict(retina_datasets[0])
-    if split_name is not None:
-        dataset_cfg['split'] = split_name
+    resolved_split = _resolve_split(dataset_cfg, split_name)
+    if resolved_split is not None:
+        dataset_cfg['split'] = resolved_split
     filenames, records = scan_retina_records(dataset_cfg)
     return {key: records[key] for key in filenames}
 

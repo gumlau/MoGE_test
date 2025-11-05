@@ -18,6 +18,22 @@ from moge.utils.vis import colorize_depth
 from moge.utils.retina_dataset import scan_retina_records
 
 
+def _find_default_split(dataset_root: Path) -> Optional[str]:
+    candidates = [
+        'val.txt',
+        'split/val.txt',
+        'validation.txt',
+        'validation_split.txt',
+        'test.txt',
+        'split/test.txt',
+        'train.txt',
+    ]
+    for candidate in candidates:
+        if (dataset_root / candidate).exists():
+            return candidate
+    return None
+
+
 def _load_model(
     config_path: Path,
     checkpoint: Optional[Path],
@@ -56,8 +72,9 @@ def run_inference(args: argparse.Namespace) -> None:
         raise RuntimeError("No retina_surgery dataset entry found in config")
     dataset_cfg = dict(retina_datasets[0])
     dataset_cfg["path"] = str(dataset_root)
-    if args.split:
-        dataset_cfg["split"] = args.split
+    split_file = args.split or _find_default_split(dataset_root)
+    if split_file:
+        dataset_cfg["split"] = split_file
 
     device = torch.device(args.device)
     model = _load_model(config_path, args.checkpoint, args.pretrained, device, args.fp16)

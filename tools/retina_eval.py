@@ -17,6 +17,21 @@ from moge.utils.io import read_image
 from moge.utils.retina_dataset import scan_retina_records, load_depth_map, read_binary_mask
 
 
+def _find_default_split(dataset_root: Path) -> Optional[str]:
+    candidates = [
+        'test.txt',
+        'split/test.txt',
+        'val.txt',
+        'split/val.txt',
+        'validation.txt',
+        'train.txt',
+    ]
+    for candidate in candidates:
+        if (dataset_root / candidate).exists():
+            return candidate
+    return None
+
+
 def _load_model(
     config: Dict,
     checkpoint: Optional[Path],
@@ -63,9 +78,11 @@ def run_evaluation(args: argparse.Namespace) -> None:
     if not retina_datasets:
         raise RuntimeError("No retina_surgery dataset entry found in config")
     dataset_cfg = dict(retina_datasets[0])
-    dataset_cfg["path"] = str(Path(args.dataset_root))
-    if args.split:
-        dataset_cfg["split"] = args.split
+    dataset_root = Path(args.dataset_root)
+    dataset_cfg["path"] = str(dataset_root)
+    split_file = args.split or _find_default_split(dataset_root)
+    if split_file:
+        dataset_cfg["split"] = split_file
 
     device = torch.device(args.device)
     model = _load_model(config, args.checkpoint, args.pretrained, device, args.fp16)
