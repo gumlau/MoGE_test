@@ -11,6 +11,8 @@ from __future__ import annotations
 import types
 import typing
 
+_ORIGINAL_TYPING_GETATTR = getattr(typing, "__getattr__", None)
+
 _COMPAT_APPLIED = False
 
 
@@ -55,6 +57,27 @@ def _ensure_typing_symbol(name: str) -> None:
     setattr(typing, name, symbol)
 
 
+def _install_typing_getattr_fallback() -> None:
+    if getattr(typing.__getattr__, "__moge_patch__", False):  # type: ignore[attr-defined]
+        return
+
+    def _patched_typing_getattr(name: str):  # type: ignore[override]
+        if name == "ParamSpec":
+            _ensure_param_spec()
+            if hasattr(typing, "ParamSpec"):
+                return typing.__dict__["ParamSpec"]
+        if name in {"TypeAlias", "TypeGuard", "Concatenate"}:
+            _ensure_typing_symbol(name)
+            if name in typing.__dict__:
+                return typing.__dict__[name]
+        if _ORIGINAL_TYPING_GETATTR is not None:
+            return _ORIGINAL_TYPING_GETATTR(name)
+        raise AttributeError(f"module 'typing' has no attribute {name!r}")
+
+    _patched_typing_getattr.__moge_patch__ = True  # type: ignore[attr-defined]
+    typing.__getattr__ = _patched_typing_getattr  # type: ignore[assignment]
+
+
 def ensure_runtime_compatibility() -> None:
     """Apply one-off runtime patches required for third-party libs."""
 
@@ -66,6 +89,7 @@ def ensure_runtime_compatibility() -> None:
     _ensure_param_spec()
     for helper in ("TypeAlias", "TypeGuard", "Concatenate"):
         _ensure_typing_symbol(helper)
+    _install_typing_getattr_fallback()
 
     _COMPAT_APPLIED = True
 

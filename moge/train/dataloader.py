@@ -14,6 +14,10 @@ import cv2
 from PIL import Image
 import torch
 import torchvision.transforms.v2.functional as TF
+from moge.compat import ensure_runtime_compatibility as _ensure_runtime_compatibility
+
+_ensure_runtime_compatibility()
+
 import utils3d
 import pipeline
 from tqdm import tqdm
