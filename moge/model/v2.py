@@ -1,4 +1,4 @@
-from typing import *
+from typing import Any, Dict, IO, List, Literal, Optional, Union
 from numbers import Number
 from functools import partial
 from pathlib import Path
