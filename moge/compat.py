@@ -8,6 +8,7 @@ entry points as well as ``sitecustomize`` when available.
 
 from __future__ import annotations
 
+import builtins
 import types
 import typing
 
@@ -49,6 +50,8 @@ def _ensure_param_spec() -> None:
     typing.ParamSpec = ParamSpec  # type: ignore[attr-defined]
     if typing_extensions is not None and not hasattr(typing_extensions, "ParamSpec"):
         typing_extensions.ParamSpec = ParamSpec  # type: ignore[attr-defined]
+    if not hasattr(builtins, "ParamSpec"):
+        builtins.ParamSpec = ParamSpec  # type: ignore[attr-defined]
 
 
 def _ensure_typing_symbol(name: str) -> None:
@@ -62,6 +65,8 @@ def _ensure_typing_symbol(name: str) -> None:
     setattr(typing, name, symbol)
     if typing_extensions is not None and not hasattr(typing_extensions, name):
         setattr(typing_extensions, name, symbol)
+    if not hasattr(builtins, name):
+        setattr(builtins, name, symbol)
 
 
 def _install_typing_getattr_fallback() -> None:
