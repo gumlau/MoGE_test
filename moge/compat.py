@@ -11,6 +11,11 @@ from __future__ import annotations
 import types
 import typing
 
+try:  # typing_extensions may be absent; handled later if so
+    import typing_extensions
+except ImportError:  # pragma: no cover - optional dependency
+    typing_extensions = None  # type: ignore
+
 _ORIGINAL_TYPING_GETATTR = getattr(typing, "__getattr__", None)
 
 _COMPAT_APPLIED = False
@@ -42,19 +47,21 @@ def _ensure_param_spec() -> None:
             return _SyntheticParamSpec(name, *args, **kwargs)
 
     typing.ParamSpec = ParamSpec  # type: ignore[attr-defined]
+    if typing_extensions is not None and not hasattr(typing_extensions, "ParamSpec"):
+        typing_extensions.ParamSpec = ParamSpec  # type: ignore[attr-defined]
 
 
 def _ensure_typing_symbol(name: str) -> None:
     if hasattr(typing, name):
         return
-    try:
-        from typing_extensions import __dict__ as typing_ext_dict  # type: ignore
-    except Exception:  # pragma: no cover - typing_extensions missing
-        return
-    symbol = typing_ext_dict.get(name)
+    symbol = None
+    if typing_extensions is not None:
+        symbol = getattr(typing_extensions, name, None)
     if symbol is None:
         return
     setattr(typing, name, symbol)
+    if typing_extensions is not None and not hasattr(typing_extensions, name):
+        setattr(typing_extensions, name, symbol)
 
 
 def _install_typing_getattr_fallback() -> None:
