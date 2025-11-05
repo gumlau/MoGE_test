@@ -232,19 +232,30 @@ def multithead_execute(inputs: List[Any], num_workers: int, pbar = None):
         pbar = tqdm(total=len(inputs) if hasattr(inputs, '__len__') else None)
 
     def decorator(fn: Callable):
-        with (
-            ThreadPoolExecutor(max_workers=num_workers) as executor,
-            pbar
-        ):  
-            pbar.refresh()
-            @catch_exception
-            @suppress_traceback
-            def _fn(input):
-                ret = fn(input)
-                pbar.update()
-                return ret
-            executor.map(_fn, inputs)
-            executor.shutdown(wait=True)
+        local_pbar = pbar
+        if local_pbar is None:
+            local_pbar = tqdm(total=len(inputs) if hasattr(inputs, '__len__') else None)
+            pbar_manager = local_pbar
+        elif hasattr(local_pbar, '__enter__') and hasattr(local_pbar, '__exit__'):
+            pbar_manager = local_pbar
+        else:
+            pbar_manager = nullcontext(local_pbar)
+
+        with ThreadPoolExecutor(max_workers=num_workers) as executor:
+            with pbar_manager as progress_bar:
+                active_pbar = progress_bar if progress_bar is not None else local_pbar
+                if hasattr(active_pbar, 'refresh'):
+                    active_pbar.refresh()
+
+                @catch_exception
+                @suppress_traceback
+                def _fn(input):
+                    ret = fn(input)
+                    if hasattr(active_pbar, 'update'):
+                        active_pbar.update()
+                    return ret
+
+                executor.map(_fn, inputs)
     
     return decorator
 

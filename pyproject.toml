@@ -16,6 +16,7 @@ dependencies = [
     "trimesh",
     "pillow",
     "huggingface_hub",
+    "accelerate",
     "numpy",
     "torch>=2.0.0",
     "torchvision",
