@@ -147,6 +147,16 @@ def _ensure_numpy_matrix_transpose() -> None:
         setattr(_np, helper_attr, _with_mT)
 
 
+
+
+def _ensure_numpy_atan2() -> None:
+    if _np is None:
+        return
+    if hasattr(_np, "atan2"):
+        return
+    if hasattr(_np, "arctan2"):
+        _np.atan2 = _np.arctan2
+
 def ensure_runtime_compatibility() -> None:
     """Apply one-off runtime patches required for third-party libs."""
 
@@ -160,6 +170,7 @@ def ensure_runtime_compatibility() -> None:
         _ensure_typing_symbol(helper)
     _install_typing_getattr_fallback()
     _ensure_numpy_matrix_transpose()
+    _ensure_numpy_atan2()
 
     _COMPAT_APPLIED = True
 
