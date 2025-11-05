@@ -22,6 +22,9 @@ import torch.version
 import accelerate
 from accelerate import Accelerator, DistributedDataParallelKwargs
 from accelerate.utils import set_seed
+from moge.compat import ensure_runtime_compatibility as _ensure_runtime_compatibility
+
+_ensure_runtime_compatibility()
 import utils3d
 import click
 from tqdm import tqdm, trange
