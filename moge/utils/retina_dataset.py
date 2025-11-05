@@ -70,14 +70,31 @@ def _load_split_list(dataset_config: Dict) -> Optional[List[str]]:
     if not split_name:
         return None
     split_path = Path(split_name)
-    if not split_path.is_absolute():
-        split_path = Path(dataset_config['path']) / split_path
-    if split_path.is_dir():
-        raise ValueError(f'Split path {split_path} should be a file, not a directory.')
-    if not split_path.exists():
-        raise FileNotFoundError(f'Split file {split_path} does not exist.')
+    search_paths: List[Path] = []
+    if split_path.is_absolute():
+        search_paths.append(split_path)
+    else:
+        dataset_root = Path(dataset_config['path'])
+        search_paths.append(dataset_root / split_path)
+        project_root = Path(__file__).resolve().parents[2]
+        search_paths.append(project_root / split_path)
+        search_paths.append(split_path)
+
+    resolved_split_path: Optional[Path] = None
+    for candidate in search_paths:
+        if candidate.exists():
+            resolved_split_path = candidate
+            break
+
+    if resolved_split_path is None:
+        checked = ', '.join(str(p) for p in search_paths)
+        raise FileNotFoundError(f'Split file not found. Checked: {checked}')
+
+    if resolved_split_path.is_dir():
+        raise ValueError(f'Split path {resolved_split_path} should be a file, not a directory.')
+
     entries: List[str] = []
-    for raw in split_path.read_text().splitlines():
+    for raw in resolved_split_path.read_text().splitlines():
         key = _normalize_split_entry(raw)
         if key is not None:
             entries.append(key)
