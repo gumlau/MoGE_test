@@ -25,6 +25,7 @@ except ImportError:  # pragma: no cover - optional dependency
 _ORIGINAL_TYPING_GETATTR = getattr(typing, "__getattr__", None)
 
 _COMPAT_APPLIED = False
+_MOGE_MATRIX_TYPE = None
 
 
 def _ensure_ellipsis_type() -> None:
@@ -97,18 +98,53 @@ def _install_typing_getattr_fallback() -> None:
 
 
 def _ensure_numpy_matrix_transpose() -> None:
+    global _MOGE_MATRIX_TYPE
     if _np is None:
         return
     if hasattr(_np.ndarray, "mT"):
         return
 
-    def _matrix_transpose(self):  # type: ignore[override]
-        return self.T
+    if _MOGE_MATRIX_TYPE is None:
+        class _MoGEMatrix(_np.ndarray):  # type: ignore[misc]
+            @property
+            def mT(self):  # type: ignore[override]
+                return self.T
 
-    try:
-        setattr(_np.ndarray, "mT", property(_matrix_transpose))
-    except Exception:  # pragma: no cover - unable to patch ndarray type
-        pass
+        _MOGE_MATRIX_TYPE = _MoGEMatrix
+
+    linalg = getattr(_np, "linalg", None)
+    if linalg is None:
+        return
+
+    orig_inv = getattr(linalg, "_moge_original_inv", None)
+    if orig_inv is None:
+        orig_inv = linalg.inv
+
+        def _patched_inv(*args, **kwargs):
+            result = orig_inv(*args, **kwargs)
+            if isinstance(result, _np.ndarray) and not hasattr(result, "mT"):
+                try:
+                    result = result.view(_MOGE_MATRIX_TYPE)
+                except TypeError:
+                    result = _np.array(result, copy=True).view(_MOGE_MATRIX_TYPE)
+            return result
+
+        setattr(_patched_inv, "_moge_wrapped", True)
+        linalg._moge_original_inv = orig_inv  # type: ignore[attr-defined]
+        linalg.inv = _patched_inv
+
+    # Ensure outputs already produced before patching are wrapped as well
+    helper_attr = "_moge_with_mT"
+    if not hasattr(_np, helper_attr):
+        def _with_mT(array):
+            if isinstance(array, _np.ndarray) and not hasattr(array, "mT"):
+                try:
+                    return array.view(_MOGE_MATRIX_TYPE)
+                except TypeError:
+                    return _np.array(array, copy=True).view(_MOGE_MATRIX_TYPE)
+            return array
+
+        setattr(_np, helper_attr, _with_mT)
 
 
 def ensure_runtime_compatibility() -> None:
