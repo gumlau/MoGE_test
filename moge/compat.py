@@ -58,7 +58,8 @@ def _ensure_typing_symbol(name: str) -> None:
 
 
 def _install_typing_getattr_fallback() -> None:
-    if getattr(typing.__getattr__, "__moge_patch__", False):  # type: ignore[attr-defined]
+    current_getattr = getattr(typing, "__getattr__", None)
+    if getattr(current_getattr, "__moge_patch__", False):  # type: ignore[attr-defined]
         return
 
     def _patched_typing_getattr(name: str):  # type: ignore[override]
@@ -70,8 +71,8 @@ def _install_typing_getattr_fallback() -> None:
             _ensure_typing_symbol(name)
             if name in typing.__dict__:
                 return typing.__dict__[name]
-        if _ORIGINAL_TYPING_GETATTR is not None:
-            return _ORIGINAL_TYPING_GETATTR(name)
+        if current_getattr is not None:
+            return current_getattr(name)
         raise AttributeError(f"module 'typing' has no attribute {name!r}")
 
     _patched_typing_getattr.__moge_patch__ = True  # type: ignore[attr-defined]
