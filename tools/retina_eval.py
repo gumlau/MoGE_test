@@ -4,12 +4,19 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
 from typing import Dict, Optional
 
 import numpy as np
 import torch
 from tqdm import tqdm
+
+# Make sure the MoGe package in the repository root is importable when the
+# script is executed via ``python tools/retina_eval.py``.
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 from moge.model import import_model_class_by_version
 from moge.test.retina_metrics import compute_depth_metrics, average_metrics
